@@ -453,10 +453,16 @@ def archaic(text: str) -> str:
 
 
 def matches(low: str, keys: list[str]) -> int:
-    """Score how strongly a phrase matches this rule's keywords."""
+    """Score how strongly a phrase matches this rule's keywords.
+
+    Plurals are allowed, that "computers" should find "computer" -- but only
+    for words long enough that no innocent word is caught by it ("hi" must
+    not answer to "his").
+    """
     best = 0
     for key in keys:
-        if re.search(r"\b" + re.escape(key) + r"\b", low):
+        plural = r"(?:s|es)?" if len(key) >= 4 else ""
+        if re.search(r"\b" + re.escape(key) + plural + r"\b", low):
             best += len(key)
     return best
 

@@ -8,17 +8,22 @@ Standard library only, exactly as the gentleman himself.
 
 from __future__ import annotations
 
+import http.client
+import json
 import os
 import random
 import re
 import tempfile
+import threading
 import unittest
 from contextlib import contextmanager
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
 import llm
 import mrgentleman as mg
+import web
 
 #: Words a gentleman of 1700 would never be heard to use.
 MODERN_SLANG = [
@@ -131,6 +136,15 @@ class OfflineWitTest(unittest.TestCase):
         self.assertLessEqual(len(echo), 120)
         self.assertTrue(echo.endswith("..."))
 
+    def test_plurals_find_their_singular(self):
+        self.assertGreater(mg.matches("what of these computers", ["computer"]), 0)
+        self.assertGreater(mg.matches("tell me some jokes", ["joke"]), 0)
+        self.assertGreater(mg.matches("the kings of england", ["king"]), 0)
+
+    def test_short_words_do_not_catch_their_betters(self):
+        self.assertEqual(mg.matches("his hat is fine", ["hi"]), 0)
+        self.assertEqual(mg.matches("nothing to say", ["no"]), 0)
+
     def test_farewells_are_recognised_and_ordinary_words_are_not(self):
         for farewell in ("farewell", "goodbye", "bye", "good night", "quit"):
             self.assertTrue(mg.FAREWELL.search(farewell), farewell)
@@ -236,6 +250,61 @@ class DotEnvTest(unittest.TestCase):
             )
         self.assertEqual(config.model, "from-argument")
         self.assertEqual(config.base_url, "https://argument.test/v1")
+
+
+class WebDoorTest(unittest.TestCase):
+    """The little server, spoken to without a browser."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), web.Parlour)
+        cls.server.daemon_threads = True
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def post(self, message: str, chunked: bool = False) -> tuple[int, str]:
+        body = json.dumps({"message": message}).encode("utf-8")
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        headers = {"Content-Type": "application/json"}
+        if chunked:
+            connection.request("POST", "/chat", body=iter([body]), headers=headers,
+                               encode_chunked=True)
+        else:
+            connection.request("POST", "/chat", body=body, headers=headers)
+        response = connection.getresponse()
+        raw = response.read().decode("utf-8", "replace")
+        connection.close()
+        return response.status, raw
+
+    def test_a_measured_message_is_answered(self):
+        status, raw = self.post("hello")
+        self.assertEqual(status, 200)
+        self.assertIn("data:", raw)
+        self.assertIn("data: [DONE]", raw)
+
+    def test_a_message_sent_in_chunks_is_answered(self):
+        """Proxies send no Content-Length, and once left this page mute."""
+        status, raw = self.post("hello", chunked=True)
+        self.assertEqual(status, 200, raw)
+        self.assertIn("data: [DONE]", raw)
+        self.assertNotIn("ill-measured", raw)
+
+    def test_the_page_and_greeting_are_served(self):
+        for path in ("/", "/hello"):
+            connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            connection.request("GET", path)
+            response = connection.getresponse()
+            body = response.read()
+            connection.close()
+            with self.subTest(path=path):
+                self.assertEqual(response.status, 200)
+                self.assertTrue(body)
 
 
 if __name__ == "__main__":

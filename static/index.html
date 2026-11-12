@@ -65,13 +65,24 @@
   }
   .log {
     flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     padding: 22px;
     display: flex;
     flex-direction: column;
     gap: 14px;
-    scroll-behavior: smooth;
+    /* No smooth scrolling: a delta every few milliseconds would restart the
+       animation each time, and the log would never reach the newest words. */
+    scroll-behavior: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule) transparent;
   }
+  .log::-webkit-scrollbar { width: 8px; }
+  .log::-webkit-scrollbar-thumb {
+    background: var(--rule);
+    border-radius: 4px;
+  }
+  .log::-webkit-scrollbar-track { background: transparent; }
   .turn {
     max-width: 86%;
     line-height: 1.48;

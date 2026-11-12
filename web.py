@@ -133,6 +133,46 @@ class Parlour(BaseHTTPRequestHandler):
                 SESSIONS.pop(next(iter(SESSIONS)))
             return token, SESSIONS[token], True
 
+    def _read_body(self) -> bytes | None:
+        """Read the visitor's words, whether measured or sent in chunks.
+
+        Proxies and some clients send a chunked body with no Content-Length;
+        reading only the measured kind left the page speechless behind them.
+        """
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            return self._read_chunks()
+        measured = self.headers.get("Content-Length")
+        if measured is None:
+            return b""
+        try:
+            length = int(measured)
+        except ValueError:
+            return None
+        if length < 0 or length > MAX_BODY:
+            return None
+        return self.rfile.read(length) if length else b""
+
+    def _read_chunks(self) -> bytes | None:
+        """Assemble a chunked body, refusing one larger than we will read."""
+        body = b""
+        while True:
+            header = self.rfile.readline(64).strip()
+            if not header:
+                return body
+            try:
+                size = int(header.split(b";")[0], 16)
+            except ValueError:
+                return None
+            if size == 0:
+                while True:  # discard any trailers
+                    trailer = self.rfile.readline(64)
+                    if trailer in (b"\r\n", b"\n", b""):
+                        return body
+            if len(body) + size > MAX_BODY:
+                return None
+            body += self.rfile.read(size)
+            self.rfile.read(2)  # the CRLF that closeth the chunk
+
     def _cross_site(self) -> bool:
         """Refuse a page from elsewhere speaking on the visitor's behalf."""
         origin = self.headers.get("Origin")
@@ -204,16 +244,11 @@ class Parlour(BaseHTTPRequestHandler):
         if urlsplit(self.path).path != "/chat":
             self._json({"error": "no such door"}, status=404)
             return
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = 0
-        if length <= 0 or length > MAX_BODY:
-            self.close_connection = True  # leave no unread body in the socket
+        raw = self._read_body()  # always drained, that the socket stay honest
+        if raw is None:
+            self.close_connection = True
             self._json({"error": "ill-measured request"}, status=400)
             return
-
-        raw = self.rfile.read(length)  # always drained, that the socket stay honest
         if self._cross_site():
             self._json({"error": "a stranger's page may not speak for thee"}, status=403)
             return
