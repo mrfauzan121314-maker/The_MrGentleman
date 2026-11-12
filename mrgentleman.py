@@ -267,7 +267,7 @@ RULES: list[tuple[list[str], list[str]]] = [
         ],
     ),
     (
-        ["eat", "food", "drink", "tea", "coffee", "hungry", "dinner", "wine",
+        ["eat", "food", "drink", "coffee", "hungry", "dinner", "wine",
          "ale", "supper", "breakfast", "cake", "bread"],
         [
             "Now thou speakest my language. Tea, {addr}, is the true religion "

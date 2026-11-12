@@ -132,9 +132,10 @@ def load_dotenv(path: str | Path | None = None) -> Path | None:
         name, value = name.strip(), value.strip()
         if not sep or not name:
             continue
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        elif " #" in value:
+        if value[:1] in ("'", '"'):  # quoted: the quotes end where they end
+            close = value.find(value[0], 1)
+            value = value[1:close] if close != -1 else value[1:]
+        elif " #" in value:  # a trailing note, not part of the value
             value = value.split(" #", 1)[0].rstrip()
         if name not in os.environ:
             os.environ[name] = value

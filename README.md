@@ -68,3 +68,12 @@ python3 web.py --offline       # his own wit, no key needed
 He reads the same `.env` as the terminal version. The server listens on
 `127.0.0.1` only unless you ask otherwise with `--host`; the key stays on this
 machine, and requests from other sites are refused.
+
+## Tests
+
+His own wit and the reading of `.env` are covered, with the standard library
+only and no key needed:
+
+```bash
+python3 -m unittest discover -v
+```
