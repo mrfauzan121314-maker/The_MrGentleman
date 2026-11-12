@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """MrGentleman -- a chatbot who speaks only in the English of the 1700s.
 
-No dependencies, no network, no API key. Run it and hold converse:
+With a language-model key in the environment he holds a real conversation;
+without one he falls back upon his own scripted wit.
 
+    export MRGENTLEMAN_API_KEY=...
     python3 mrgentleman.py
 """
 
 from __future__ import annotations
 
+import argparse
 import random
 import re
 import sys
+
+try:
+    from llm import MAX_HISTORY_TURNS, Config, GentlemanLLM, LLMError
+except ImportError:  # the wit alone, should llm.py not travel with him
+    MAX_HISTORY_TURNS, Config, GentlemanLLM = 8, None, None
+
+    class LLMError(Exception):  # type: ignore[no-redef]
+        """No language model to hand."""
 
 NAME = "MrGentleman"
 
@@ -532,26 +543,105 @@ class Gentleman:
 # Parley
 # --------------------------------------------------------------------------
 
+FAREWELL = re.compile(
+    r"\b(bye|farewell|goodbye|good ?night|adieu|exit|quit|see you)\b"
+)
 
-def main() -> int:
-    rng = random.Random()
-    gentleman = Gentleman(rng)
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="mrgentleman.py",
+        description="Converse with MrGentleman, a gentleman of the year "
+                    "seventeen hundred.",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="speak only from MrGentleman's own wit, without a language model",
+    )
+    parser.add_argument(
+        "--model",
+        help=f"model name for the language model (else MRGENTLEMAN_MODEL)",
+    )
+    parser.add_argument(
+        "--base-url",
+        help="OpenAI-compatible API base URL (else MRGENTLEMAN_BASE_URL)",
+    )
+    return parser.parse_args(argv)
+
+
+def speak(llm: GentlemanLLM, history: list[dict[str, str]]) -> str:
+    """Let the oracle speak, a piece at a time, as he composes it."""
+    pieces: list[str] = []
+    begun = False
+    try:
+        for piece in llm.stream(history):
+            if not begun:
+                print("MrGentleman: ", end="", flush=True)
+                begun = True
+            pieces.append(piece)
+            sys.stdout.write(piece)
+            sys.stdout.flush()
+    finally:
+        if begun:
+            print()
+    return "".join(pieces).strip()
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    gentleman = Gentleman(random.Random())
+
+    llm, config = None, None
+    if not args.offline and Config is not None and GentlemanLLM is not None:
+        config = Config.from_env(model=args.model, base_url=args.base_url)
+        if config is not None:
+            try:
+                llm = GentlemanLLM(config)
+            except LLMError as exc:
+                print(f"  (mine oracle is misaddressed: {exc})")
 
     print(f"MrGentleman: {gentleman.reply('good day')}")
-    print("  (speak thy mind; say 'farewell' to take thy leave)\n")
+    if llm is not None:
+        print(f"  (conversing by way of {config.model}; say 'farewell' to take "
+              f"thy leave)")
+    else:
+        print("  (speak thy mind; say 'farewell' to take thy leave)")
+        if not args.offline:
+            print("  (no key found, so I keep to mine own wit -- set "
+                  "MRGENTLEMAN_API_KEY to lend me a livelier tongue)")
+    print()
+
+    history: list[dict[str, str]] = []
+
     while True:
         try:
-            said = input("Thou: ")
+            said = input("Thou: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             print(f"MrGentleman: {gentleman.reply('farewell')}")
             return 0
 
-        answer = gentleman.reply(said)
-        print(f"MrGentleman: {answer}")
+        if not said:
+            continue
+        leaving = bool(FAREWELL.search(said.lower()))
 
-        if re.search(r"\b(bye|farewell|goodbye|good ?night|adieu|exit|quit|"
-                     r"see you)\b", said.lower()):
+        if llm is None:
+            print(f"MrGentleman: {gentleman.reply(said)}")
+        else:
+            history.append({"role": "user", "content": said})
+            try:
+                answer = speak(llm, history)
+            except LLMError as exc:
+                history.pop()
+                print(f"MrGentleman: Alack! Mine oracle is indisposed -- {exc} "
+                      f"Pray, say it again in a moment.")
+                continue
+            if answer:
+                history.append({"role": "assistant", "content": answer})
+                del history[:-2 * MAX_HISTORY_TURNS]
+
+        if leaving:
             return 0
 
 
