@@ -53,3 +53,18 @@ python3 mrgentleman.py --offline            # wit only, no network
 python3 mrgentleman.py --model gpt-4o       # choose the model
 python3 mrgentleman.py --base-url http://127.0.0.1:8080/v1   # local server
 ```
+
+## On a web page
+
+Prefer a page to a terminal? The same gentleman waits behind a small local
+server, and streams his words into it as he composes them.
+
+```bash
+python3 web.py                 # http://127.0.0.1:8000
+python3 web.py --port 3000     # another door
+python3 web.py --offline       # his own wit, no key needed
+```
+
+He reads the same `.env` as the terminal version. The server listens on
+`127.0.0.1` only unless you ask otherwise with `--host`; the key stays on this
+machine, and requests from other sites are refused.
